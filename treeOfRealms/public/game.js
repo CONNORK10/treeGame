@@ -21,6 +21,7 @@ const game = new Phaser.Game(config);
 
 let player;
 let cursors;
+let spaceKey;
 let mousePointer;
 let currentLevel = 1;
 let minions = [];
@@ -84,13 +85,14 @@ function create() {
     // Create minions
     spawnMinions(this);
 
-    // Input handling - WASD
+    // Input handling - WASD and Space
     cursors = this.input.keyboard.addKeys({
         up: Phaser.Input.Keyboard.KeyCodes.W,
         down: Phaser.Input.Keyboard.KeyCodes.S,
         left: Phaser.Input.Keyboard.KeyCodes.A,
         right: Phaser.Input.Keyboard.KeyCodes.D
     });
+    spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
     mousePointer = this.input.activePointer;
 }
@@ -118,37 +120,47 @@ function createPlatforms(scene) {
 function createStairs(scene) {
     // Create stairs connecting ground, platforms, and providing multiple routes
     const stairColor = 0x95a5a6;
+    const stairWidth = 200;
+    const stairHeight = 40;
+
+    // Function to create angled stairs with a more refined look
+    function createAngledStair(x, y, angle) {
+        // Create a group for the stair to make it look more detailed
+        const stairGroup = scene.add.group();
+
+        // Main stair body
+        const mainStair = scene.add.rectangle(x, y, stairWidth, stairHeight, stairColor);
+        mainStair.setRotation(angle);
+        scene.physics.add.existing(mainStair, true);
+        
+        // Add subtle border and shadow effect
+        const borderStair = scene.add.rectangle(x, y, stairWidth + 10, stairHeight + 10, 0x7f8c8d);
+        borderStair.setRotation(angle);
+        borderStair.setAlpha(0.5);
+
+        stairGroup.add(mainStair);
+        stairGroup.add(borderStair);
+
+        stairs.push(mainStair);
+        return mainStair;
+    }
 
     // Stairs from ground to first platform (angled and wider)
-    const stair1 = scene.add.rectangle(150, 490, 150, 30, stairColor);
-    stair1.setRotation(Math.PI / 4);
-    scene.physics.add.existing(stair1, true);
-    stairs.push(stair1);
+    createAngledStair(150, 490, Math.PI / 4);
 
     // Stairs connecting first platform to second platform
-    const stair2 = scene.add.rectangle(425, 400, 150, 30, stairColor);
-    stair2.setRotation(Math.PI / 4);
-    scene.physics.add.existing(stair2, true);
-    stairs.push(stair2);
+    createAngledStair(425, 400, Math.PI / 4);
 
     // Alternative stairs route from ground to second platform
-    const stair3 = scene.add.rectangle(500, 425, 150, 30, stairColor);
-    stair3.setRotation(Math.PI / 4);
-    scene.physics.add.existing(stair3, true);
-    stairs.push(stair3);
+    createAngledStair(500, 425, Math.PI / 4);
 
     // Stairs connecting second platform to third platform
-    const stair4 = scene.add.rectangle(375, 325, 150, 30, stairColor);
-    stair4.setRotation(Math.PI / 4);
-    scene.physics.add.existing(stair4, true);
-    stairs.push(stair4);
+    createAngledStair(375, 325, Math.PI / 4);
 }
-
-
 
 function handleStairInteraction(player, stair) {
     // Allow vertical movement on stairs
-    if (cursors.up.isDown) {
+    if (cursors.up.isDown || spaceKey.isDown) {
         player.body.setVelocityY(-200);
         player.body.setGravityY(0);
     } else if (cursors.down.isDown) {
@@ -168,6 +180,7 @@ function update() {
     } else {
         player.body.setVelocityX(0);
     }
+
     // Improved jump control with multiple surface detection
     const canJump = player.body.touching.down || 
         platforms.some(platform => Phaser.Geom.Intersects.RectangleToRectangle(
@@ -178,16 +191,9 @@ function update() {
             player.getBounds(), 
             stair.getBounds()
         ));
-        if (cursors.up.isDown && canJump) {
-            player.body.setVelocityY(-330);
-        }
 
-    // Jump control with improved detection
-    if (cursors.up.isDown && (player.body.touching.down || 
-        platforms.some(platform => Phaser.Geom.Intersects.RectangleToRectangle(
-            player.getBounds(), 
-            platform.getBounds()
-        )))) {
+    // Jump with both W and Space
+    if ((cursors.up.isDown || spaceKey.isDown) && canJump) {
         player.body.setVelocityY(-330);
     }
 
