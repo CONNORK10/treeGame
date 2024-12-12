@@ -35,6 +35,12 @@ let healthText;
 let levelText;
 let healthBar;
 let damageTimer = 0;
+let weaponMode = 'melee';
+let weaponText;
+let projectiles;
+let lastShotTime = 0;
+let shootingCooldown = 250;
+let switchKey;
 
 function preload() {
     // No preloading needed for basic shapes
@@ -52,7 +58,7 @@ function create() {
     // Create player
     player = this.add.circle(100, 500, 20, 0x3498db);
     this.physics.add.existing(player);
-    player.body.setCollideWorldBounds(true);
+    player.body.setCollideWorldBounds(false);
     player.body.setGravityY(300);
 
     // Add collision with level ground, platforms, and stairs
@@ -82,6 +88,16 @@ function create() {
     });
     levelText.setScrollFactor(0);
 
+    // Weapon text
+    weaponText = this.add.text(10, 85, 'Weapon: Melee', { 
+        fontSize: '18px', 
+        fill: '#ffffff' 
+    });
+    weaponText.setScrollFactor(0);
+
+    // Create projectiles group
+    projectiles = this.add.group();
+
     // Create minions
     spawnMinions(this);
 
@@ -93,47 +109,38 @@ function create() {
         right: Phaser.Input.Keyboard.KeyCodes.D
     });
     spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-
+    switchKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
     mousePointer = this.input.activePointer;
 }
 
 function createPlatforms(scene) {
-    // Create multiple platforms closer together and at more jumpable heights
     const platformColors = [0x34495e, 0x2c3e50, 0x7f8c8d];
     
-    // Platform 1 - lower and wider
     const platform1 = scene.add.rectangle(250, 450, 250, 20, platformColors[0]);
     scene.physics.add.existing(platform1, true);
     platforms.push(platform1);
 
-    // Platform 2 - mid height
     const platform2 = scene.add.rectangle(600, 350, 250, 20, platformColors[1]);
     scene.physics.add.existing(platform2, true);
     platforms.push(platform2);
 
-    // Platform 3 - higher
     const platform3 = scene.add.rectangle(250, 250, 250, 20, platformColors[2]);
     scene.physics.add.existing(platform3, true);
     platforms.push(platform3);
 }
 
 function createStairs(scene) {
-    // Create stairs connecting ground, platforms, and providing multiple routes
     const stairColor = 0x95a5a6;
     const stairWidth = 200;
     const stairHeight = 40;
 
-    // Function to create angled stairs with a more refined look
     function createAngledStair(x, y, angle) {
-        // Create a group for the stair to make it look more detailed
         const stairGroup = scene.add.group();
 
-        // Main stair body
         const mainStair = scene.add.rectangle(x, y, stairWidth, stairHeight, stairColor);
         mainStair.setRotation(angle);
         scene.physics.add.existing(mainStair, true);
         
-        // Add subtle border and shadow effect
         const borderStair = scene.add.rectangle(x, y, stairWidth + 10, stairHeight + 10, 0x7f8c8d);
         borderStair.setRotation(angle);
         borderStair.setAlpha(0.5);
@@ -145,21 +152,13 @@ function createStairs(scene) {
         return mainStair;
     }
 
-    // Stairs from ground to first platform (angled and wider)
     createAngledStair(150, 490, Math.PI / 4);
-
-    // Stairs connecting first platform to second platform
     createAngledStair(425, 400, Math.PI / 4);
-
-    // Alternative stairs route from ground to second platform
     createAngledStair(500, 425, Math.PI / 4);
-
-    // Stairs connecting second platform to third platform
     createAngledStair(375, 325, Math.PI / 4);
 }
 
 function handleStairInteraction(player, stair) {
-    // Allow vertical movement on stairs
     if (cursors.up.isDown || spaceKey.isDown) {
         player.body.setVelocityY(-200);
         player.body.setGravityY(0);
@@ -171,8 +170,91 @@ function handleStairInteraction(player, stair) {
     }
 }
 
+function createProjectile(scene, x, y, direction) {
+    const projectile = scene.add.circle(x, y, 5, 0xffff00);
+    scene.physics.add.existing(projectile);
+    
+    const speed = 400;
+    const angle = Math.atan2(direction.y, direction.x);
+    
+    projectile.body.setVelocity(
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed
+    );
+
+    minions.forEach(minion => {
+        scene.physics.add.overlap(projectile, minion, (proj, min) => {
+            proj.destroy();
+            min.destroy();
+            minions = minions.filter(m => m !== min);
+        });
+    });
+
+    platforms.forEach(platform => {
+        scene.physics.add.collider(projectile, platform, (proj) => {
+            proj.destroy();
+        });
+    });
+
+    scene.time.delayedCall(1000, () => {
+        if (projectile.active) {
+            projectile.destroy();
+        }
+    });
+
+    projectiles.add(projectile);
+    return projectile;
+}
+
+function handleVerticalWrapping(player) {
+    const buffer = 30;
+
+    if (player.y > config.height + buffer) {
+        player.y = -buffer;
+        const currentVelocityX = player.body.velocity.x;
+        player.body.reset(player.x, -buffer);
+        player.body.setVelocityX(currentVelocityX);
+    } else if (player.y < -buffer) {
+        player.y = config.height + buffer;
+        const currentVelocityX = player.body.velocity.x;
+        player.body.reset(player.x, config.height + buffer);
+        player.body.setVelocityX(currentVelocityX);
+    }
+}
+
+function performAttack(scene) {
+    const currentTime = scene.time.now;
+
+    if (weaponMode === 'melee') {
+        minions.forEach((minion, index) => {
+            const distance = Phaser.Math.Distance.Between(
+                player.x, player.y, 
+                minion.x, minion.y
+            );
+
+            if (distance < 50) {
+                minion.destroy();
+                minions.splice(index, 1);
+            }
+        });
+    } else if (weaponMode === 'gun' && currentTime - lastShotTime >= shootingCooldown) {
+        const direction = {
+            x: mousePointer.x + scene.cameras.main.scrollX - player.x,
+            y: mousePointer.y + scene.cameras.main.scrollY - player.y
+        };
+        
+        const length = Math.sqrt(direction.x * direction.x + direction.y * direction.y);
+        direction.x /= length;
+        direction.y /= length;
+
+        createProjectile(scene, player.x, player.y, direction);
+        lastShotTime = currentTime;
+    }
+}
+
 function update() {
-    // Movement controls - WASD
+    handleVerticalWrapping(player);
+
     if (cursors.left.isDown) {
         player.body.setVelocityX(-200);
     } else if (cursors.right.isDown) {
@@ -181,7 +263,6 @@ function update() {
         player.body.setVelocityX(0);
     }
 
-    // Improved jump control with multiple surface detection
     const canJump = player.body.touching.down || 
         platforms.some(platform => Phaser.Geom.Intersects.RectangleToRectangle(
             player.getBounds(), 
@@ -192,51 +273,63 @@ function update() {
             stair.getBounds()
         ));
 
-    // Jump with both W and Space
     if ((cursors.up.isDown || spaceKey.isDown) && canJump) {
         player.body.setVelocityY(-330);
     }
 
-    // Basic attack on mouse click
     if (mousePointer.isDown) {
         performAttack(this);
     }
 
-    // Minion movement and damage
-    updateMinionMovement(this);
+    if (Phaser.Input.Keyboard.JustDown(switchKey)) {
+        weaponMode = weaponMode === 'melee' ? 'gun' : 'melee';
+        weaponText.setText(`Weapon: ${weaponMode.charAt(0).toUpperCase() + weaponMode.slice(1)}`);
+    }
 
-    // Check level completion
+    projectiles.getChildren().forEach(projectile => {
+        if (projectile.y > config.height + 30) {
+            projectile.y = -30;
+        } else if (projectile.y < -30) {
+            projectile.y = config.height + 30;
+        }
+        
+        if (projectile.x > config.width + 30) {
+            projectile.x = -30;
+        } else if (projectile.x < -30) {
+            projectile.x = config.width + 30;
+        }
+    });
+
+    updateMinionMovement(this);
     checkLevelCompletion(this);
 
-    // Update health text and health bar
     healthText.setText(`Health: ${playerHealth}`);
     healthBar.width = Math.max(0, (playerHealth / 100) * 200);
-
-    // Update level text
     levelText.setText(`Level: ${currentLevel}`);
 
-    // Check game over
     if (playerHealth <= 0) {
         alert('Game Over!');
         playerHealth = 100;
         this.scene.restart();
     }
+
+    if (player.x > config.width) {
+        player.x = 0;
+    } else if (player.x < 0) {
+        player.x = config.width;
+    }
 }
 
 function spawnMinions(scene) {
-    // Increase minion count and spread them out more
     const minionCount = Phaser.Math.Between(10, 25);
     for (let i = 0; i < minionCount; i++) {
-        // Spread minions across different platforms and ground
         const platformOrGround = Phaser.Math.RND.pick([...platforms, levelBounds]);
         
-        // Random x position near the platform
         const x = Phaser.Math.Between(
             platformOrGround.x - platformOrGround.width / 2, 
             platformOrGround.x + platformOrGround.width / 2
         );
         
-        // Y position on or just above the platform
         const y = platformOrGround.y - 30;
 
         const minion = scene.add.circle(x, y, 15, 0xe74c3c);
@@ -244,13 +337,11 @@ function spawnMinions(scene) {
         minion.body.setCollideWorldBounds(true);
         minion.body.setGravityY(300);
         
-        // Add collisions
         scene.physics.add.collider(minion, levelBounds);
         platforms.forEach(platform => {
             scene.physics.add.collider(minion, platform);
         });
         
-        // Add random movement properties
         minion.movementTimer = 0;
         minion.movementDirection = Phaser.Math.RND.sign();
         
@@ -259,29 +350,23 @@ function spawnMinions(scene) {
 }
 
 function updateMinionMovement(scene) {
-    // Increment damage timer
     damageTimer++;
 
     minions.forEach(minion => {
-        // Add random movement
         minion.movementTimer++;
         
         if (minion.movementTimer >= 60) {
-            // Randomly change direction every second
             minion.movementDirection = Phaser.Math.RND.sign();
             minion.movementTimer = 0;
         }
 
-        // Move with some randomness
         const speed = 100 * minion.movementDirection;
         minion.body.setVelocityX(speed);
 
-        // Periodically try to move towards player with reduced aggression
         if (Phaser.Math.RND.frac() < 0.3) {
             scene.physics.moveToObject(minion, player, 50);
         }
 
-        // Damage player periodically
         if (damageTimer >= 60) {
             const distance = Phaser.Math.Distance.Between(
                 player.x, player.y, 
@@ -294,25 +379,9 @@ function updateMinionMovement(scene) {
         }
     });
 
-    // Reset damage timer
     if (damageTimer >= 60) {
         damageTimer = 0;
     }
-}
-
-function performAttack(scene) {
-    minions.forEach((minion, index) => {
-        const distance = Phaser.Math.Distance.Between(
-            player.x, player.y, 
-            minion.x, minion.y
-        );
-
-        if (distance < 50) {
-            // Remove minion on attack
-            minion.destroy();
-            minions.splice(index, 1);
-        }
-    });
 }
 
 function checkLevelCompletion(scene) {
@@ -320,41 +389,32 @@ function checkLevelCompletion(scene) {
         levelComplete = true;
         currentLevel++;
 
-        // Add door
         door = scene.add.rectangle(750, 520, 50, 80, 0x2ecc71);
         
         if (currentLevel <= 5) {
-            // Prepare next level
             setTimeout(() => {
-                // Destroy existing minions
                 minions.forEach(m => m.destroy());
-                minions = []; // Clear the minions array
+                minions = [];
 
-                // Destroy existing platforms and stairs
                 platforms.forEach(p => p.destroy());
                 platforms = [];
                 stairs.forEach(s => s.destroy());
                 stairs = [];
 
-                // Destroy the door
                 if (door) {
                     door.destroy();
                 }
 
-                // Reset player position
                 player.x = 100;
                 player.y = 500;
 
-                // Create new platforms and stairs
                 createPlatforms(scene);
                 createStairs(scene);
 
-                // Spawn new minions
                 spawnMinions(scene);
                 levelComplete = false;
             }, 2000);
         } else {
-            // Game completed
             alert('Congratulations! You completed all levels!');
         }
     }
