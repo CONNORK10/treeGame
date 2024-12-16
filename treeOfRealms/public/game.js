@@ -26,7 +26,6 @@ let mousePointer;
 let currentLevel = 1;
 let minions = [];
 let platforms = [];
-let stairs = [];
 let levelComplete = false;
 let levelBounds;
 let door;
@@ -53,7 +52,6 @@ function create() {
 
     // Create platforms and stairs
     createPlatforms(this);
-    createStairs(this);
 
     // Create player
     player = this.add.circle(100, 500, 20, 0x3498db);
@@ -66,9 +64,7 @@ function create() {
     platforms.forEach(platform => {
         this.physics.add.collider(player, platform);
     });
-    stairs.forEach(stair => {
-        this.physics.add.overlap(player, stair, handleStairInteraction, null, this);
-    });
+    
 
     // Health bar and text
     healthBar = this.add.rectangle(10, 10, 200, 20, 0x2ecc71);
@@ -127,35 +123,6 @@ function createPlatforms(scene) {
     const platform3 = scene.add.rectangle(250, 250, 250, 20, platformColors[2]);
     scene.physics.add.existing(platform3, true);
     platforms.push(platform3);
-}
-
-function createStairs(scene) {
-    const stairColor = 0x95a5a6;
-    const stairWidth = 200;
-    const stairHeight = 40;
-
-    function createAngledStair(x, y, angle) {
-        const stairGroup = scene.add.group();
-
-        const mainStair = scene.add.rectangle(x, y, stairWidth, stairHeight, stairColor);
-        mainStair.setRotation(angle);
-        scene.physics.add.existing(mainStair, true);
-        
-        const borderStair = scene.add.rectangle(x, y, stairWidth + 10, stairHeight + 10, 0x7f8c8d);
-        borderStair.setRotation(angle);
-        borderStair.setAlpha(0.5);
-
-        stairGroup.add(mainStair);
-        stairGroup.add(borderStair);
-
-        stairs.push(mainStair);
-        return mainStair;
-    }
-
-    createAngledStair(150, 490, Math.PI / 4);
-    createAngledStair(425, 400, Math.PI / 4);
-    createAngledStair(500, 425, Math.PI / 4);
-    createAngledStair(375, 325, Math.PI / 4);
 }
 
 function handleStairInteraction(player, stair) {
@@ -267,10 +234,6 @@ function update() {
         platforms.some(platform => Phaser.Geom.Intersects.RectangleToRectangle(
             player.getBounds(), 
             platform.getBounds()
-        )) ||
-        stairs.some(stair => Phaser.Geom.Intersects.RectangleToRectangle(
-            player.getBounds(), 
-            stair.getBounds()
         ));
 
     if ((cursors.up.isDown || spaceKey.isDown) && canJump) {
@@ -398,9 +361,6 @@ function checkLevelCompletion(scene) {
 
                 platforms.forEach(p => p.destroy());
                 platforms = [];
-                stairs.forEach(s => s.destroy());
-                stairs = [];
-
                 if (door) {
                     door.destroy();
                 }
@@ -409,7 +369,6 @@ function checkLevelCompletion(scene) {
                 player.y = 500;
 
                 createPlatforms(scene);
-                createStairs(scene);
 
                 spawnMinions(scene);
                 levelComplete = false;
